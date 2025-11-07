@@ -20,12 +20,12 @@ import emoji
 
 # --- Configurações ---
 ## Arquivo CSV retirado localmente
-NOME_ARQUIVO_CSV = 'analise_sentimento_alimentos.csv'
+NOME_ARQUIVO_CSV = 'analise_sentimento_alimentos_emoji.csv'
 COLUNA_AVALIACOES = 'Comentário_Consumidor'
 
 """ ## Retirada do arquivo pelo Google Drive
 NOME_ARQUIVO_CSV = '/content/drive/MyDrive/quotes2.csv'  # Troque pelo nome real do seu arquivo
-COLUNA_AVALIACOES = 'Quote'     # Troque pelo nome real da coluna com o texto
+COLUNA_AVALIACOES = 'Quote'         # Troque pelo nome real da coluna com o texto
 """
 
 # --- Geração Dinâmica do Nome do Arquivo PDF ---
@@ -39,7 +39,7 @@ timestamp = agora_com_fuso.strftime("%d-%m-%Y_%H-%M")
 NOME_ARQUIVO_PDF = f'relatorio_sentimento_{timestamp}.pdf'
 
 # --- Configurações da Logomarca ---
-CAMINHO_LOGOMARCA = 'logo_soulcare.png'  # Atualize com o caminho correto da logomarca
+CAMINHO_LOGOMARCA = 'logo_soulcare.jpeg'  # Atualize com o caminho correto da logomarca
 
 """ ----- Logomarca online (Google Drive) -----
 CAMINHO_LOGOMARCA = '/content/drive/MyDrive/cachorro.jpeg' #Alterado / carlos
@@ -171,50 +171,47 @@ df = pd.concat([
     df_res_emoji[['Sentimento_Emoji', 'Estrelas_Emoji', 'Confianca_Emoji']]
 ], axis=1)
 
-# ###############################################################
-# --- NOVO: LÓGICA DE DECISÃO (Emoji vs Texto) ---
-# ###############################################################
-# ... (Presumindo que seu DataFrame 'df' e a 'COLUNA_AVALIACOES' já existem) ...
 
+# ###############################################################
+# --- NOVA LÓGICA DE DECISÃO (Texto Prioritário, Emoji Auxiliar APENAS SE EMOJI > LETRAS) ---
+# ###############################################################
 def escolher_melhor_analise(row):
     texto = str(row[COLUNA_AVALIACOES])
-    contagem_emoji = emoji.emoji_count(texto)
-    comprimento_texto = len(texto)
+    
+    # 1. Conta o número de emojis
+    num_emojis = emoji.emoji_count(texto)
 
-    # Nova lógica:
-    # Usa o modelo de TEXTO (nlptown) se:
-    # 1. NÃO houver emojis (contagem_emoji == 0)
-    #    OU
-    # 2. O texto tiver 3 ou mais caracteres (comprimento_texto >= 3)
-    if (contagem_emoji == 0) or (comprimento_texto >= 3):
-        # Se NÃO tem emoji, OU se o texto é longo o suficiente,
-        # usa o resultado do modelo 'nlptown'
-        return pd.Series([
-            row['Sentimento_Texto'],
-            row['Estrelas_Texto'],
-            row['Confianca_Texto'],
-            'M_Texto (nlptown)' # Modelo escolhido
-        ])
-    else:
-        # Caso contrário (ou seja, TEM emoji E o texto é MUITO CURTO < 3),
-        # usa o resultado do modelo 'cardiffnlp' (casos como "👍", "😞")
+    # 2. Conta o número de letras (caracteres alfabéticos/numéricos)
+    # Remove emojis e pontuação/espaços para contar apenas as letras/dígitos
+    texto_sem_emoji = emoji.replace_emoji(texto, replace='')
+    # Filtra para manter apenas caracteres alfanuméricos (letras e números)
+    texto_limpo = re.sub(r'[^a-zA-Z0-9]', '', texto_sem_emoji) 
+    num_letras = len(texto_limpo)
+
+    # Lógica de Prioridade:
+    # A análise de emoji é usada se houver emojis E o número de emojis for maior 
+    # que o número de letras (e dígitos) no comentário.
+    if num_emojis > 0 and num_emojis > num_letras:
+        # Prioriza o EMOJI se a densidade de emojis for muito alta
         return pd.Series([
             row['Sentimento_Emoji'],
             row['Estrelas_Emoji'],
             row['Confianca_Emoji'],
-            'M_Emoji (Cardiff)' # Modelo escolhido
+            f'M_Emoji_Denso ({num_emojis} Emojis > {num_letras} Letras)' # Modelo escolhido
+        ])
+    else:
+        # Padrão: Usa o modelo de TEXTO
+        return pd.Series([
+            row['Sentimento_Texto'],
+            row['Estrelas_Texto'],
+            row['Confianca_Texto'],
+            f'M_Texto_Padrao ({num_emojis} Emojis <= {num_letras} Letras)' # Modelo escolhido
         ])
 
-# Aplica a lógica para criar as colunas FINAIS
+# Aplica a nova lógica para criar as colunas FINAIS
 df[['Sentimento', 'Estrelas_Preditas', 'Confianca', 'Modelo_Escolhido']] = df.apply(
     escolher_melhor_analise, axis=1
 )
-
-# Aplica a lógica para criar as colunas FINAIS
-df[['Sentimento', 'Estrelas_Preditas', 'Confianca', 'Modelo_Escolhido']] = df.apply(
-    escolher_melhor_analise, axis=1
-)
-# ###############################################################
 
 
 # 4. Exibição da Contagem de Sentimentos (agora baseada na coluna final)
@@ -282,13 +279,14 @@ styles['Title'].fontName = FONTE_PADRAO
 styles['h2'].fontName = FONTE_PADRAO
 styles['Normal'].fontName = FONTE_PADRAO
 
+""""
 try:
     logomarca = Image(CAMINHO_LOGOMARCA, width=LARGURA_LOGOMARCA, height=ALTURA_LOGOMARCA)
     logomarca.hAlign = 'RIGHT'
     elements.append(logomarca)
     elements.append(Spacer(1, 6))
 except Exception as e:
-    print(f"AVISO: Erro ao carregar a logomarca: {e}")
+    print(f"AVISO: Erro ao carregar a logomarca: {e}")"""
 
 # Título do Relatório (atualizado)
 elements.append(Paragraph("Relatório de análise de sentimento", styles['Title']))
@@ -337,7 +335,7 @@ pie.slices.popout = 5
 color_map = {
     'Positivo': colors.darkgreen,
     'Negativo': colors.darkred,
-    'Neutro': colors.darkblue
+    'Neutro': colors.darkgray
 }
 for i, label in enumerate(contagem_absoluta.index):
     pie.slices[i].fillColor = color_map.get(label, colors.grey)
